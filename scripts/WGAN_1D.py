@@ -5,7 +5,8 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import trange
 from os.path import join
-from newgan.models import Config
+from newgan.models import Config, gradient_penalty
+
 plt.switch_backend("Qt5Agg")
 
 generator = torch.nn.Sequential(
@@ -21,13 +22,12 @@ discriminator = torch.nn.Sequential(
     (torch.nn.Linear(128, 128)),
     torch.nn.ReLU(),
     (torch.nn.Linear(128, 1)),
-    torch.nn.Sigmoid(),
 )
 
 
-config = Config(lr=0.001, d_steps=1, g_steps=1, batch_size=64, epochs=1000)
-optim_d = torch.optim.Adam(discriminator.parameters(), lr=config.lr)
-optim_g = torch.optim.Adam(generator.parameters(), lr=config.lr)
+config = Config(lr=0.005, d_steps=1, g_steps=1, batch_size=64, epochs=1000, lambda_gp=10)
+optim_d = torch.optim.Adam(discriminator.parameters(), lr=config.lr, betas=(0.5, 0.9))
+optim_g = torch.optim.Adam(generator.parameters(), lr=config.lr, betas=(0.5, 0.9))
 scheduler_g = torch.optim.lr_scheduler.StepLR(
     optim_g, step_size=config.epochs // 5, gamma=0.95
 )
@@ -37,7 +37,6 @@ scheduler_d = torch.optim.lr_scheduler.StepLR(
 
 
 pbar = trange(config.epochs)
-loss = torch.nn.BCELoss()
 real_labels = torch.ones(config.batch_size, 1)
 fake_labels = torch.zeros(config.batch_size, 1)
 
@@ -68,10 +67,11 @@ def update(frame):
         optim_d.zero_grad()
         pred_real = discriminator(real_data)
         pred_fake = discriminator(generator(torch.randn(config.batch_size, 1)))
-        loss_d = loss(pred_real, real_labels) + loss(pred_fake, fake_labels)
-        loss_d.backward()
-        w_distance = pred_real.mean() - pred_fake.mean()
-        # (-w_distance).backward()
+        loss_d = -(pred_real.mean() - pred_fake.mean())
+        loss_gp = gradient_penalty(discriminator, real_data, generator(real_data))
+        loss = loss_d + config.lambda_gp * loss_gp
+        loss.backward()
+        w_distance = -loss_d
         optim_d.step()
 
     lr_d = optim_d.param_groups[0]["lr"]
@@ -82,12 +82,13 @@ def update(frame):
     # train generator
     optim_g.zero_grad()
     pred_fake = discriminator(generator(torch.randn(config.batch_size, 1)))
-    loss_g = loss(pred_fake, real_labels)
+    loss_g = -pred_fake.mean()
     loss_g.backward()
     optim_g.step()
     scheduler_g.step()
     scheduler_d.step()
-    # plotting
+
+    # Plotting
     if frame > 0:
         fig.canvas.start_event_loop(0.001)
     with torch.no_grad():
@@ -110,7 +111,7 @@ ani = FuncAnimation(
 plt.tight_layout()
 plt.show(block=False)
 
-filename = join(config.project_root, "plots/1d_gan.mp4")
+filename = join(config.project_root, "plots/1d_wgan.mp4")
 ani.save(
     filename, fps=30, progress_callback=lambda i, n: pbar.update(1),
 )
