@@ -11,21 +11,25 @@ plt.switch_backend("Qt5Agg")
 
 generator = torch.nn.Sequential(
     torch.nn.Linear(1, 128),
-    torch.nn.ReLU(),
+    torch.nn.LeakyReLU(.2),
     torch.nn.Linear(128, 128),
-    torch.nn.ReLU(),
+    torch.nn.LeakyReLU(.2),
     torch.nn.Linear(128, 1),
 )
 discriminator = torch.nn.Sequential(
     (torch.nn.Linear(1, 128)),
-    torch.nn.ReLU(),
+    torch.nn.LeakyReLU(.2),
     (torch.nn.Linear(128, 128)),
-    torch.nn.ReLU(),
+    torch.nn.LeakyReLU(.2),
+    (torch.nn.Linear(128, 128)),
+    torch.nn.LeakyReLU(.2),
     (torch.nn.Linear(128, 1)),
 )
 
 
-config = Config(lr=0.005, d_steps=1, g_steps=1, batch_size=64, epochs=1000, lambda_gp=10)
+config = Config(
+    lr=0.0001, d_steps=5, g_steps=1, batch_size=64, epochs=1000, lambda_gp=1
+)
 optim_d = torch.optim.Adam(discriminator.parameters(), lr=config.lr, betas=(0.5, 0.9))
 optim_g = torch.optim.Adam(generator.parameters(), lr=config.lr, betas=(0.5, 0.9))
 scheduler_g = torch.optim.lr_scheduler.StepLR(
@@ -63,16 +67,17 @@ plt.legend()
 
 
 def update(frame):
-    for real_data in dataloader:
-        optim_d.zero_grad()
-        pred_real = discriminator(real_data)
-        pred_fake = discriminator(generator(torch.randn(config.batch_size, 1)))
-        loss_d = -(pred_real.mean() - pred_fake.mean())
-        loss_gp = gradient_penalty(discriminator, real_data, generator(real_data))
-        loss = loss_d + config.lambda_gp * loss_gp
-        loss.backward()
-        w_distance = -loss_d
-        optim_d.step()
+    for _ in range(config.d_steps):
+        for real_data in dataloader:
+            optim_d.zero_grad()
+            pred_real = discriminator(real_data)
+            pred_fake = discriminator(generator(torch.randn(config.batch_size, 1)))
+            loss_d = -(pred_real.mean() - pred_fake.mean())
+            loss_gp = gradient_penalty(discriminator, real_data, generator(real_data))
+            loss = loss_d + config.lambda_gp * loss_gp
+            loss.backward()
+            w_distance = -loss_d
+            optim_d.step()
 
     lr_d = optim_d.param_groups[0]["lr"]
     lr_g = optim_g.param_groups[0]["lr"]
@@ -111,7 +116,7 @@ ani = FuncAnimation(
 plt.tight_layout()
 plt.show(block=False)
 
-filename = join(config.project_root, "plots/1d_wgan.mp4")
+filename = join(config.project_root, "plots/1d_wgan_gp1.mp4")
 ani.save(
     filename, fps=30, progress_callback=lambda i, n: pbar.update(1),
 )
