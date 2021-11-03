@@ -20,6 +20,7 @@ class Config(object):
         num_workers=0,
         epochs=100,
         device=None,
+        show=False
     ):
         self.lr = lr
         self.d_steps = d_steps
@@ -35,6 +36,7 @@ class Config(object):
         self.lambda_kl = lambda_kl
         self.num_workers = num_workers
         self.epochs = epochs
+        self.show = show
         self.project_root = abspath(__file__).split("/newgan")[0]
         if device is None:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
